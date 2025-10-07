@@ -366,8 +366,12 @@ Your instructions are:
                 {TOPICS.map((t) => (<option key={t} value={t}>{t}</option>))}
               </select>
             </div>
-            <button onClick={() => setIsApiKeyModalOpen(true)} className="w-full mb-2 bg-white text-indigo-600 border border-indigo-600 py-3 rounded-lg font-semibold hover:bg-indigo-50 transition shadow-sm flex items-center justify-center gap-2">
-              <Key size={18} /> {isApiKeySet ? 'Update API Key' : 'Set API Key'}
+            <button 
+              onClick={() => setIsApiKeyModalOpen(true)} 
+              className="w-full mb-2 bg-white text-indigo-600 border border-indigo-600 py-3 rounded-lg font-semibold hover:bg-indigo-50 transition shadow-sm flex items-center justify-center gap-2 disabled:bg-gray-100 disabled:text-gray-500 disabled:border-gray-300 disabled:cursor-not-allowed"
+              disabled={isApiKeySet}
+            >
+              <Key size={18} /> {isApiKeySet ? 'API Key Set' : 'Set API Key'}
             </button>
             <button onClick={handleNewSession} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isApiKeySet || isSessionActive}>
               🔄 Start New Session
