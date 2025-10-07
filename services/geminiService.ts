@@ -1,15 +1,13 @@
 import { GoogleGenAI, LiveSession, LiveServerMessage, Modality, Blob, ErrorEvent, CloseEvent } from "@google/genai";
 
-let ai: GoogleGenAI;
 const model = 'gemini-2.5-flash-native-audio-preview-09-2025';
 
-try {
-  if (!process.env.API_KEY) {
-    throw new Error("API_KEY environment variable not set");
+export function initializeAi(apiKey: string): GoogleGenAI {
+  if (!apiKey) {
+    throw new Error("API_KEY must be provided.");
   }
-  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-} catch (error) {
-  console.error("Failed to initialize GoogleGenAI:", error);
+  // This will throw an error if the API key is invalid format-wise
+  return new GoogleGenAI({ apiKey });
 }
 
 export function encode(bytes: Uint8Array): string {
@@ -51,6 +49,7 @@ export async function decodeAudioData(
 }
 
 export const connectToLiveSession = (
+  ai: GoogleGenAI,
   systemInstruction: string,
   callbacks: {
     onopen: () => void;
@@ -60,7 +59,7 @@ export const connectToLiveSession = (
   }
 ): Promise<LiveSession> => {
   if (!ai) {
-    throw new Error("GoogleGenAI not initialized. Please check your API key.");
+    throw new Error("GoogleGenAI not initialized. Please provide an API key.");
   }
 
   return ai.live.connect({

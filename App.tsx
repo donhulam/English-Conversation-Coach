@@ -2,13 +2,14 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Message } from './types';
 import { LEVELS, TOPICS } from './constants';
 import {
+  initializeAi,
   connectToLiveSession,
   decode,
   decodeAudioData,
   createPcmBlob
 } from './services/geminiService';
-import { Settings, X, Menu, Mic, MicOff, Volume2, HelpCircle } from './components/icons';
-import { LiveSession, LiveServerMessage, ErrorEvent, CloseEvent } from '@google/genai';
+import { Settings, X, Menu, Mic, MicOff, Volume2, HelpCircle, Key } from './components/icons';
+import { LiveSession, LiveServerMessage, ErrorEvent, CloseEvent, GoogleGenAI } from '@google/genai';
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
@@ -17,12 +18,16 @@ const SCRIPT_PROCESSOR_BUFFER_SIZE = 4096;
 const App: React.FC = () => {
   const [isSettingsOpen, setIsSettingsOpen] = useState(true);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
+  const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+
   const [level, setLevel] = useState<string>(LEVELS[0]);
   const [topic, setTopic] = useState<string>(TOPICS[0]);
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSessionActive, setIsSessionActive] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('Click the microphone to start your session.');
+  const [statusMessage, setStatusMessage] = useState('Please set your API Key to begin.');
+  const [isApiKeySet, setIsApiKeySet] = useState(false);
+  const [apiKeyInput, setApiKeyInput] = useState('');
   
   const currentUserTranscriptionRef = useRef('');
   const currentTutorTranscriptionRef = useRef('');
@@ -30,8 +35,8 @@ const App: React.FC = () => {
   const [displayTutorTranscription, setDisplayTutorTranscription] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const aiRef = useRef<GoogleGenAI | null>(null);
   const sessionPromiseRef = useRef<Promise<LiveSession> | null>(null);
-  const sessionRef = useRef<LiveSession | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
@@ -39,6 +44,42 @@ const App: React.FC = () => {
   const mediaStreamSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const nextStartTimeRef = useRef(0);
   const audioPlaybackSources = useRef(new Set<AudioBufferSourceNode>());
+
+  useEffect(() => {
+    const savedApiKey = localStorage.getItem('googleApiKey');
+    if (savedApiKey) {
+      try {
+        aiRef.current = initializeAi(savedApiKey);
+        setIsApiKeySet(true);
+        setStatusMessage('API Key loaded. Click the microphone to start.');
+      } catch (e) {
+        console.error("Failed to initialize with saved API key:", e);
+        localStorage.removeItem('googleApiKey');
+        setStatusMessage('Invalid API Key found. Please set a new one.');
+        setIsApiKeyModalOpen(true);
+      }
+    } else {
+      setIsApiKeyModalOpen(true);
+    }
+  }, []);
+
+  const handleSaveApiKey = () => {
+    if (apiKeyInput.trim()) {
+      try {
+        aiRef.current = initializeAi(apiKeyInput);
+        localStorage.setItem('googleApiKey', apiKeyInput);
+        setIsApiKeySet(true);
+        setIsApiKeyModalOpen(false);
+        setApiKeyInput('');
+        setStatusMessage('API Key set! Ready to start a session.');
+      } catch (e) {
+        console.error(e);
+        alert('Failed to initialize with the provided API Key. Please check the key and try again.');
+      }
+    } else {
+      alert('Please enter a valid API Key.');
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -92,7 +133,6 @@ Your instructions are:
     }
     sessionPromiseRef.current?.then(session => session.close());
     sessionPromiseRef.current = null;
-    sessionRef.current = null;
 
     audioPlaybackSources.current.forEach(source => source.stop());
     audioPlaybackSources.current.clear();
@@ -110,6 +150,11 @@ Your instructions are:
     if (isSessionActive) {
       stopSession();
     }
+    if (!aiRef.current) {
+      setStatusMessage('API Key not set. Please set it in the settings.');
+      setIsApiKeyModalOpen(true);
+      return;
+    }
     setMessages([]);
     setDisplayUserTranscription('');
     setDisplayTutorTranscription('');
@@ -121,7 +166,7 @@ Your instructions are:
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
 
-      sessionPromiseRef.current = connectToLiveSession(getSystemPrompt(), {
+      sessionPromiseRef.current = connectToLiveSession(aiRef.current, getSystemPrompt(), {
         onopen: async () => {
             console.log('Session opened.');
             setIsSessionActive(true);
@@ -209,10 +254,9 @@ Your instructions are:
         },
       });
 
-      sessionRef.current = await sessionPromiseRef.current;
     } catch (error) {
       console.error('Failed to start session:', error);
-      setStatusMessage('Failed to start session. Please check your connection.');
+      setStatusMessage('Failed to start session. Check your API key or connection.');
       setIsSessionActive(false);
     }
   }, [isSessionActive, getSystemPrompt, stopSession]);
@@ -222,6 +266,10 @@ Your instructions are:
   }, [stopSession]);
   
   const handleMicButtonClick = () => {
+    if (!isApiKeySet) {
+      setIsApiKeyModalOpen(true);
+      return;
+    }
     if (isSessionActive) {
       stopSession();
     } else {
@@ -242,6 +290,30 @@ Your instructions are:
         </button>
       </div>
       
+      {isApiKeyModalOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 transition-opacity">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full m-4 relative transition-transform transform scale-95">
+            <h2 className="text-2xl font-bold text-indigo-700 mb-4">Enter Your Google API Key</h2>
+            <p className="text-gray-600 mb-4">To use the AI Coach, you need a Google API key from Google AI Studio.</p>
+            <ol className="list-decimal list-inside space-y-2 text-gray-700 bg-gray-50 p-4 rounded-lg border mb-4">
+              <li>Go to <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 font-semibold hover:underline">Google AI Studio</a>.</li>
+              <li>Click "Get API key" and create a new key.</li>
+              <li>Copy the key and paste it below.</li>
+            </ol>
+            <input 
+              type="password"
+              value={apiKeyInput}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              placeholder="Paste your API Key here"
+              className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition mb-4"
+              />
+            <button onClick={handleSaveApiKey} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md">
+              Save and Start
+            </button>
+          </div>
+        </div>
+      )}
+
       {isHelpModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 transition-opacity" onClick={() => setIsHelpModalOpen(false)}>
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full m-4 relative transition-transform transform scale-95" onClick={(e) => e.stopPropagation()}>
@@ -251,23 +323,19 @@ Your instructions are:
             <ol className="space-y-4 text-gray-700">
               <li className="flex items-start gap-3">
                 <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">1</div>
+                <div><span className="font-semibold">Enter API Key:</span> First, set your Google API Key in the settings panel. This is a one-time setup.</div>
+              </li>
+              <li className="flex items-start gap-3">
+                <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">2</div>
                 <div><span className="font-semibold">Configure Your Session:</span> Use the <span className="font-semibold text-indigo-600">Settings</span> panel to choose your proficiency <span className="font-semibold">Level</span> and a conversation <span className="font-semibold">Topic</span>. Click <span className="italic">"Start New Session"</span> when ready.</div>
               </li>
                <li className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">2</div>
-                <div><span className="font-semibold">Start Speaking:</span> Click the large <span className="font-semibold text-indigo-600">microphone button</span>. Your AI coach, Anna, will greet you and start a conversation based on your chosen topic.</div>
-              </li>
-              <li className="flex items-start gap-3">
                 <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">3</div>
-                <div><span className="font-semibold">Chat Naturally:</span> Speak freely into your microphone. You'll see a live transcription of what you're saying. Respond to Anna's questions and have a natural conversation.</div>
+                <div><span className="font-semibold">Start Speaking:</span> Click the large <span className="font-semibold text-indigo-600">microphone button</span>. Your AI coach, Anna, will greet you and start a conversation based on your chosen topic.</div>
               </li>
               <li className="flex items-start gap-3">
                 <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">4</div>
                 <div><span className="font-semibold">Receive Feedback:</span> Anna will provide instant feedback, gently correcting grammar and suggesting more natural ways to phrase things.</div>
-              </li>
-              <li className="flex items-start gap-3">
-                <div className="w-6 h-6 bg-indigo-100 text-indigo-600 font-bold rounded-full flex items-center justify-center flex-shrink-0">5</div>
-                <div><span className="font-semibold">End the Session:</span> Click the red microphone button at any time to finish.</div>
               </li>
             </ol>
              <button onClick={() => setIsHelpModalOpen(false)} className="mt-8 w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md">
@@ -288,17 +356,20 @@ Your instructions are:
             </div>
             <div className="mb-4">
               <label className="block text-sm font-semibold mb-2 text-gray-700">Level</label>
-              <select value={level} onChange={(e) => setLevel(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+              <select value={level} onChange={(e) => setLevel(e.target.value)} disabled={!isApiKeySet} className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition disabled:bg-gray-100 disabled:cursor-not-allowed">
                 {LEVELS.map((l) => (<option key={l} value={l}>{l}</option>))}
               </select>
             </div>
             <div className="mb-6">
               <label className="block text-sm font-semibold mb-2 text-gray-700">Topic</label>
-              <select value={topic} onChange={(e) => setTopic(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition">
+              <select value={topic} onChange={(e) => setTopic(e.target.value)} disabled={!isApiKeySet} className="w-full p-3 border border-gray-300 rounded-lg bg-white focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition disabled:bg-gray-100 disabled:cursor-not-allowed">
                 {TOPICS.map((t) => (<option key={t} value={t}>{t}</option>))}
               </select>
             </div>
-            <button onClick={handleNewSession} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md disabled:opacity-70" disabled={isSessionActive}>
+            <button onClick={() => setIsApiKeyModalOpen(true)} className="w-full mb-2 bg-white text-indigo-600 border border-indigo-600 py-3 rounded-lg font-semibold hover:bg-indigo-50 transition shadow-sm flex items-center justify-center gap-2">
+              <Key size={18} /> {isApiKeySet ? 'Update API Key' : 'Set API Key'}
+            </button>
+            <button onClick={handleNewSession} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed" disabled={!isApiKeySet || isSessionActive}>
               🔄 Start New Session
             </button>
           </div>
@@ -310,7 +381,7 @@ Your instructions are:
             {messages.length === 0 && !isSessionActive && (
               <div className="text-center text-gray-500 mt-20 flex flex-col items-center">
                 <Volume2 size={48} className="mx-auto mb-4 text-indigo-400" />
-                <p className="text-lg">Your session is ready.</p><p>Press the microphone button to begin your voice conversation.</p>
+                <p className="text-lg">Your session is ready.</p><p>{isApiKeySet ? 'Press the microphone button to begin your voice conversation.' : 'Please set your API Key in the settings first.'}</p>
               </div>
             )}
             {messages.map((msg, idx) => (
@@ -328,7 +399,7 @@ Your instructions are:
 
           <div className="p-6 bg-white/80 backdrop-blur-sm border-t border-gray-200">
             <div className="flex justify-center">
-              <button onClick={handleMicButtonClick} className={`p-6 rounded-full shadow-2xl transition-all transform hover:scale-110 ${isSessionActive ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'}`}>
+              <button onClick={handleMicButtonClick} disabled={!isApiKeySet} className={`p-6 rounded-full shadow-2xl transition-all transform hover:scale-110 ${isSessionActive ? 'bg-red-500 hover:bg-red-600 animate-pulse' : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700'} disabled:bg-gray-400 disabled:cursor-not-allowed disabled:scale-100`}>
                 {isSessionActive ? <MicOff size={32} className="text-white" /> : <Mic size={32} className="text-white" />}
               </button>
             </div>
