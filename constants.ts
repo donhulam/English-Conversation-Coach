@@ -22,3 +22,38 @@ export const TOPICS: string[] = [
     'Making a Presentation',
     'Social & Cultural Issues'
 ];
+
+export const COACH_VOICES: string[] = [
+    'Zephyr',
+    'Puck',
+    'Charon',
+    'Luna',
+    'Nova',
+    'Kore',
+    'Fenrir',
+    'Leda',
+    'Orus',
+    'Aoede',
+    'Callirrhoe',
+    'Autonoe',
+    'Enceladus',
+    'Iapetus',
+    'Umbriel',
+    'Algieba',
+    'Despina',
+    'Erinome',
+    'Algenib',
+    'Rasalgethi',
+    'Laomedeia',
+    'Achernar',
+    'Alnilam',
+    'Schedar',
+    'Gacrux',
+    'Pulcherrima',
+    'Achird',
+    'Zubenelgenubi',
+    'Vindemiatrix',
+    'Sadachbia',
+    'Sadaltager',
+    'Sulafat'
+];

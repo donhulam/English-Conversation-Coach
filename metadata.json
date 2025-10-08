@@ -1,5 +1,5 @@
 {
-  "name": "AI English Conversation Coach",
+  "name": "AI English Conversation Coach 1.0",
   "description": "An interactive web application that helps users practice their English conversation skills with a friendly AI partner.",
   "requestFramePermissions": [
     "microphone"

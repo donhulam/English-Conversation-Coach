@@ -51,6 +51,7 @@ export async function decodeAudioData(
 export const connectToLiveSession = (
   ai: GoogleGenAI,
   systemInstruction: string,
+  voiceName: string,
   callbacks: {
     onopen: () => void;
     onmessage: (message: LiveServerMessage) => void;
@@ -68,7 +69,7 @@ export const connectToLiveSession = (
     config: {
       responseModalities: [Modality.AUDIO],
       speechConfig: {
-        voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } },
       },
       systemInstruction: systemInstruction,
       inputAudioTranscription: {},
