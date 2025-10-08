@@ -56,6 +56,11 @@ const App: React.FC = () => {
   
   const isSessionActiveRef = useRef(isSessionActive);
   isSessionActiveRef.current = isSessionActive;
+  
+  const currentSessionIdRef = useRef(currentSessionId);
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId;
+  }, [currentSessionId]);
 
   const sessionStateRef = useRef({ messages, level, topic, generalNotes });
   useEffect(() => {
@@ -164,6 +169,35 @@ ${conversationInstructions}
 8. **Be Concise:** Keep your own speaking turns relatively short to maximize the user's practice time.
 9. **Stay on Topic:** Strictly adhere to the chosen conversation topic and difficulty level.`;
   }, [level, topic, messages]);
+  
+  const saveCurrentSession = useCallback(() => {
+    const { messages, level, topic, generalNotes } = sessionStateRef.current;
+    const sessionId = currentSessionIdRef.current;
+
+    if (sessionId) {
+      setHistory(prevHistory =>
+        prevHistory.map(session =>
+          session.id === sessionId
+            ? { ...session, messages, notes: { ...session.notes, general: generalNotes } }
+            : session
+        )
+      );
+      return { isNew: false };
+    } else {
+      const newSessionId = Date.now();
+      const newSession: ConversationSession = {
+        id: newSessionId,
+        date: new Date().toLocaleString(),
+        level,
+        topic,
+        messages,
+        notes: { general: generalNotes },
+      };
+      setHistory(prevHistory => [newSession, ...prevHistory]);
+      setCurrentSessionId(newSessionId);
+      return { isNew: true };
+    }
+  }, []);
 
   const stopSession = useCallback(() => {
     if (streamRef.current) {
@@ -194,25 +228,15 @@ ${conversationInstructions}
     nextStartTimeRef.current = 0;
     
     if (isSessionActiveRef.current) {
-      const { messages: finalMessages, level: finalLevel, topic: finalTopic, generalNotes } = sessionStateRef.current;
+      const { messages: finalMessages } = sessionStateRef.current;
       if (finalMessages.length > messagesAtSessionStart.current.length) {
-        const newSession: ConversationSession = {
-          id: Date.now(),
-          date: new Date().toLocaleString(),
-          level: finalLevel,
-          topic: finalTopic,
-          messages: finalMessages,
-          notes: {
-            general: generalNotes,
-          }
-        };
-        setHistory(prevHistory => [newSession, ...prevHistory]);
+        saveCurrentSession();
       }
     }
 
     setIsSessionActive(false);
     setStatusMessage('Session ended. Click the microphone to practice again.');
-  }, []);
+  }, [saveCurrentSession]);
 
   const startOrContinueSession = useCallback(async () => {
     if (isSessionActive) {
@@ -315,8 +339,9 @@ ${conversationInstructions}
             }
         },
         onerror: (e: ErrorEvent) => {
-          console.error('Session error:', e);
-          setStatusMessage('A connection error occurred. Please restart.');
+          console.error('Session error:', e.error);
+          setStatusMessage('Connection failed. Please check your API key and network.');
+          setIsApiKeyModalOpen(true);
           stopSession();
         },
         onclose: (e: CloseEvent) => {
@@ -390,28 +415,19 @@ ${conversationInstructions}
   };
 
   const handleSaveNotes = () => {
-    if (!currentSessionId) {
-        alert("You can only save notes to a session that has been loaded from history. For new sessions, notes are saved automatically when the session ends.");
-        return;
+    if (!currentSessionId && messages.length === 0) {
+      alert("Please say something to your coach to start the conversation before saving.");
+      return;
     }
-
-    setHistory(prevHistory => 
-        prevHistory.map(session => {
-            if (session.id === currentSessionId) {
-                return {
-                    ...session,
-                    notes: {
-                        ...session.notes,
-                        general: generalNotes,
-                    }
-                };
-            }
-            return session;
-        })
-    );
-    alert("Notes saved successfully!");
+    const { isNew } = saveCurrentSession();
+    if (isNew) {
+      alert("A new session has been created in your history and your notes have been saved.");
+    } else {
+      alert("Session progress and notes have been updated!");
+    }
   };
 
+  const canSaveNotes = currentSessionId || isSessionActive;
 
   return (
     <div className="flex flex-col h-screen bg-gradient-to-br from-blue-50 to-indigo-100 font-sans">
@@ -623,8 +639,8 @@ ${conversationInstructions}
               </div>
               <button
                 onClick={handleSaveNotes}
-                disabled={!currentSessionId}
-                title={!currentSessionId ? "Notes can only be saved to a session from history" : "Save your notes to the current session"}
+                disabled={!canSaveNotes}
+                title={!canSaveNotes ? "Start or load a session to save notes" : "Save your notes to the current session"}
                 className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-3 rounded-lg font-semibold hover:from-indigo-700 hover:to-purple-700 transition shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Save Notes to Session
